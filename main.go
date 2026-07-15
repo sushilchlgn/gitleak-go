@@ -8,7 +8,6 @@ import (
 	"strings"
 )
 
-// AddedLine represents one line added in one commit's diff.
 type AddedLine struct {
 	CommitHash string
 	File       string
@@ -30,10 +29,28 @@ func main() {
 
 	findings := scanForSecrets(lines)
 
+	// Track which lines the regex rules already caught, so entropy
+	// scoring only reports NEW suspicious lines, not duplicates.
+	alreadyFlagged := make(map[string]bool)
+	for _, f := range findings {
+		key := f.CommitHash + f.File + f.LineText
+		alreadyFlagged[key] = true
+	}
+
+	entropyFindings := scanForHighEntropy(lines, alreadyFlagged)
+
+	fmt.Println("=== Pattern matches ===")
 	for _, f := range findings {
 		fmt.Printf("[%s] %s: (%s) %s\n", f.CommitHash[:7], f.File, f.RuleName, f.LineText)
 	}
-	fmt.Printf("\nadded lines scanned: %d | findings: %d\n", len(lines), len(findings))
+
+	fmt.Println("\n=== High-entropy candidates (no known pattern) ===")
+	for _, e := range entropyFindings {
+		fmt.Printf("[%s] %s: (entropy %.2f) %s\n", e.CommitHash[:7], e.File, e.Entropy, e.LineText)
+	}
+
+	fmt.Printf("\nadded lines scanned: %d | pattern findings: %d | entropy findings: %d\n",
+		len(lines), len(findings), len(entropyFindings))
 }
 
 // walkHistory runs `git log -p --all` inside repoPath and parses the
