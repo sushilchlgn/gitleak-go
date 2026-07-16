@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,12 +16,27 @@ type AddedLine struct {
 	LineText   string
 }
 
+// Report is the unified, JSON-serializable shape for every finding,
+// whether it came from a regex rule or entropy scoring.
+type Report struct {
+	CommitHash string  `json:"commit_hash"`
+	File       string  `json:"file"`
+	Line       string  `json:"line"`
+	RuleName   string  `json:"rule_name"`
+	Entropy    float64 `json:"entropy,omitempty"`
+	Severity   string  `json:"severity"`
+}
+
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Println("usage: gitleak-go <path-to-git-repo>")
+	jsonOutput := flag.Bool("json", false, "output findings as JSON instead of plain text")
+	flag.Parse()
+
+	args := flag.Args()
+	if len(args) < 1 {
+		fmt.Println("usage: gitleak-go [-json] <path-to-git-repo>")
 		os.Exit(1)
 	}
-	repoPath := os.Args[1]
+	repoPath := args[0]
 
 	lines, err := walkHistory(repoPath)
 	if err != nil {
@@ -29,8 +46,6 @@ func main() {
 
 	findings := scanForSecrets(lines)
 
-	// Track which lines the regex rules already caught, so entropy
-	// scoring only reports NEW suspicious lines, not duplicates.
 	alreadyFlagged := make(map[string]bool)
 	for _, f := range findings {
 		key := f.CommitHash + f.File + f.LineText
@@ -38,6 +53,37 @@ func main() {
 	}
 
 	entropyFindings := scanForHighEntropy(lines, alreadyFlagged)
+
+	var reports []Report
+	for _, f := range findings {
+		reports = append(reports, Report{
+			CommitHash: f.CommitHash,
+			File:       f.File,
+			Line:       f.LineText,
+			RuleName:   f.RuleName,
+			Severity:   severityFor(repoPath, f.LineText),
+		})
+	}
+	for _, e := range entropyFindings {
+		reports = append(reports, Report{
+			CommitHash: e.CommitHash,
+			File:       e.File,
+			Line:       e.LineText,
+			RuleName:   "high-entropy",
+			Entropy:    e.Entropy,
+			Severity:   severityFor(repoPath, e.LineText),
+		})
+	}
+
+	if *jsonOutput {
+		out, err := json.MarshalIndent(reports, "", "  ")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error marshaling JSON:", err)
+			os.Exit(1)
+		}
+		fmt.Println(string(out))
+		return
+	}
 
 	fmt.Println("=== Pattern matches ===")
 	for _, f := range findings {
