@@ -41,12 +41,14 @@ func main() {
 
 	fmt.Println("=== Pattern matches ===")
 	for _, f := range findings {
-		fmt.Printf("[%s] %s: (%s) %s\n", f.CommitHash[:7], f.File, f.RuleName, f.LineText)
+		sev := severityFor(repoPath, f.LineText)
+		fmt.Printf("[%s] %s: (%s) [%s] %s\n", f.CommitHash[:7], f.File, f.RuleName, sev, f.LineText)
 	}
 
 	fmt.Println("\n=== High-entropy candidates (no known pattern) ===")
 	for _, e := range entropyFindings {
-		fmt.Printf("[%s] %s: (entropy %.2f) %s\n", e.CommitHash[:7], e.File, e.Entropy, e.LineText)
+		sev := severityFor(repoPath, e.LineText)
+		fmt.Printf("[%s] %s: (entropy %.2f) [%s] %s\n", e.CommitHash[:7], e.File, e.Entropy, sev, e.LineText)
 	}
 
 	fmt.Printf("\nadded lines scanned: %d | pattern findings: %d | entropy findings: %d\n",
